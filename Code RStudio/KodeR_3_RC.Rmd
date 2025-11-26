@@ -1,0 +1,247 @@
+---
+title: "Jackknife"
+author: "Kelompok 3 RC "
+date: "2025-11-16"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+library(readxl)
+df <- read_excel("C:/Users/Lenovo/Downloads/Dataset_3_RC.xlsx")
+df
+```
+
+## Eksplorasi Data
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+# =========================
+# Scatter Plot: IPM vs Pengeluaran Perkapita
+# =========================
+ggplot(df, aes(x = PP, y = IPM)) +
+  geom_point(color = "#2E86C1", size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  scale_x_continuous(labels = comma) +
+  labs(
+    title = "Hubungan Pengeluaran Perkapita dengan IPM",
+    x = "Pengeluaran Perkapita (Rupiah)",
+    y = "IPM"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+# =========================
+# Scatter Plot: IPM vs RLS
+# =========================
+ggplot(df, aes(x = RLS, y = IPM)) +
+  geom_point(color = "#27AE60", size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  labs(
+    title = "Hubungan Rata-rata Lama Sekolah (RLS) dengan IPM",
+    x = "RLS (tahun)",
+    y = "IPM"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+# =========================
+# Scatter Plot: IPM vs AHH
+# =========================
+ggplot(df, aes(x = AHH, y = IPM)) +
+  geom_point(color = "#8E44AD", size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  labs(
+    title = "Hubungan Angka Harapan Hidup (AHH) dengan IPM",
+    x = "AHH (tahun)",
+    y = "IPM"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+## Ringkasan Statistik
+
+```{r}
+summary (df)
+```
+
+## Model Regresi
+
+```{r}
+model <- lm(IPM ~  PP + RLS + AHH , data = df)
+summary(model)
+
+```
+
+## Uji Asumsi Klasik
+
+#### Uji Normalitas
+
+```{r}
+#Normalitas
+res <- residuals(model)
+
+# Uji Shapiro-Wilk
+shapiro.test(res)
+
+# Q-Q Plot
+qqnorm(res)
+qqline(res, col="red")
+```
+
+#### Multikolinearitas
+
+```{r}
+#Multikolineritas 
+#kalau VIP < 5 masih aman
+library(car)
+vif(model)
+```
+
+#### Heteroskedastisitas
+
+```{r}
+#Heterokesdastisitas
+#kalau p-value > 0.05 berarti aman
+library(lmtest)
+bptest(model)
+
+```
+
+## ESTIMASI JACKKNIFE
+
+```{r}
+# Model awal
+model <- lm(IPM ~ PP + RLS + AHH, data = df)
+
+# Jumlah observasi
+n <- nrow(df)
+
+# Menyimpan beta untuk tiap subsample
+beta_jack <- matrix(NA, nrow = n, ncol = length(coef(model)))
+colnames(beta_jack) <- names(coef(model))
+
+# Loop jackknife: hapus 1 data setiap iterasi
+for (i in 1:n) {
+  # Buat subsample tanpa observasi ke-i
+  df_sub <- df[-i, ]
+  
+  # Fit model pada subsample
+  fit_sub <- lm(IPM ~ PP + RLS + AHH, data = df_sub)
+  
+  # Simpan koefisien β-nya
+  beta_jack[i, ] <- coef(fit_sub)
+}
+
+# Hasil jackknife untuk setiap slope
+beta_jack
+
+```
+
+```{r}
+# Jumlah observasi
+n <- nrow(df)
+
+# Menyimpan beta jackknife
+beta_jack <- matrix(NA, nrow = n, ncol = length(coef(model)))
+colnames(beta_jack) <- names(coef(model))
+
+# Loop jackknife
+for (i in 1:n) {
+  df_sub <- df[-i, ]
+  fit_sub <- lm(IPM ~ PP + RLS + AHH, data = df_sub)
+  beta_jack[i, ] <- coef(fit_sub)
+}
+
+# ---- PLOT DALAM SATU DIAGRAM ----
+
+par(mar = c(10, 4, 4, 2), xpd = TRUE)
+
+matplot(
+  beta_jack,
+  type = "l",
+  lty = 1,
+  lwd = 2,
+  xlab = "Leave-One-Out (Observasi ke-i)",
+  ylab = "Nilai Koefisien",
+  main = "Perubahan Koefisien Regresi pada Jackknife"
+)
+
+legend(
+  "bottom",
+  inset = c(0, -0.35),   
+  horiz = TRUE,
+  legend = colnames(beta_jack),
+  col = 1:ncol(beta_jack),
+  lty = 1,
+  lwd = 2,
+  bty = "n"
+)
+
+
+
+
+
+```
+
+```{r}
+# Koefisien asli dari model
+beta_asli <- coef(model)
+
+# Rata-rata koefisien jackknife
+beta_jack_mean <- colMeans(beta_jack)
+
+# Tampilkan hasil dengan format rapi
+cat("=== Perbandingan Koefisien Asli dan Rata-rata Jackknife ===\n")
+
+for (i in 1:length(beta_asli)) {
+  cat(sprintf(
+    "%-12s | Beta Asli: % .6f | Beta Mean Jackknife: % .6f\n",
+    names(beta_asli)[i],
+    beta_asli[i],
+    beta_jack_mean[i]
+  ))
+}
+
+```
+
+### Bias dan Variance
+
+```{r}
+# Rumus bias jackknife:
+# Bias_jack = (n - 1) * (mean(beta_i) - beta_asli)
+
+bias_jack <- (n - 1) * (beta_jack_mean - beta_asli)
+
+# Varians jackknife:
+# Var_jack = (n - 1) / n * Σ (beta_i - mean)^2
+
+sq_dev <- (beta_jack - matrix(beta_jack_mean, nrow = n, 
+                              ncol = length(beta_asli), byrow = TRUE))^2
+
+var_jack <- (n - 1) / n * colSums(sq_dev)
+
+
+cat("\n=== Estimasi Bias Jackknife ===\n")
+print(bias_jack)
+
+cat("\n=== Varians Jackknife ===\n")
+print(var_jack)
+
+
+```
+
+#### Interval Kepercayaan
+
+```{r}
+# Interval kepercayaan 90%
+confint(model, level = 0.95)
+
+
+```
